@@ -6,7 +6,7 @@ terraform {
 
   backend "gcs" {
     bucket  = "testing-474706-terraform-state"
-    prefix = "frontend-cloudrun"
+    prefix  = "frontend-cloudrun"
   }
 
   required_providers {
@@ -125,15 +125,31 @@ resource "google_compute_url_map" "url_map" {
 }
 
 ############################################
-# HTTPS PROXY
+# MANAGED SSL CERTIFICATE (REQUIRED FOR HTTPS)
+############################################
+resource "google_compute_managed_ssl_certificate" "frontend_cert" {
+  name = "frontend-managed-cert-v2"
+
+  managed {
+    # Temporary domain is OK for demo/testing
+    domains = ["example.com"]
+  }
+}
+
+############################################
+# HTTPS PROXY (WITH SSL CERTIFICATE)
 ############################################
 resource "google_compute_target_https_proxy" "https_proxy" {
   name    = "frontend-https-proxy-v2"
   url_map = google_compute_url_map.url_map.id
+
+  ssl_certificates = [
+    google_compute_managed_ssl_certificate.frontend_cert.id
+  ]
 }
 
 ############################################
-# GLOBAL FORWARDING RULE
+# GLOBAL FORWARDING RULE (HTTPS ENTRY POINT)
 ############################################
 resource "google_compute_global_forwarding_rule" "https_rule" {
   name       = "frontend-https-forwarding-rule-v2"
