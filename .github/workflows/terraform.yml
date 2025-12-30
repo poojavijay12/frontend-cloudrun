@@ -10,6 +10,11 @@ permissions:
   contents: read
   id-token: write   # REQUIRED for Workload Identity Federation
 
+env:
+  PROJECT_ID: testing-474706
+  IMAGE_NAME: frontend
+  IMAGE_TAG: ${{ github.sha }}
+
 jobs:
   terraform:
     runs-on: ubuntu-latest
@@ -19,46 +24,55 @@ jobs:
         working-directory: terraform
 
     steps:
+      # Checkout source code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Authenticate using Workload Identity Federation
+      # Authenticate to Google Cloud using Workload Identity Federation
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/81086632889/locations/global/workloadIdentityPools/github-pool/providers/github-provider
           service_account: terraform-platform@testing-474706.iam.gserviceaccount.com
 
-      # Configure Docker auth (global, not directory-specific)
+      # Configure Docker authentication for GCR
       - name: Configure Docker for GCP
         run: gcloud auth configure-docker --quiet
         working-directory: .
 
-      # Build Docker image from app/ directory
+      # Build Docker image (from app directory) with immutable tag
       - name: Build Docker image
-        run: docker build -t gcr.io/testing-474706/frontend:latest .
+        run: docker build -t gcr.io/${PROJECT_ID}/${IMAGE_NAME}:${IMAGE_TAG} .
         working-directory: app
 
       # Push Docker image
       - name: Push Docker image
-        run: docker push gcr.io/testing-474706/frontend:latest
+        run: docker push gcr.io/${PROJECT_ID}/${IMAGE_NAME}:${IMAGE_TAG}
         working-directory: .
 
-      # Terraform setup
+      # Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.6
 
+      # Terraform Init (remote backend)
       - name: Terraform Init
         run: terraform init -reconfigure
 
+      # Terraform Validate
       - name: Terraform Validate
         run: terraform validate
 
+      # Terraform Plan
       - name: Terraform Plan
-        run: terraform plan -var="project_id=testing-474706"
+        run: terraform plan \
+          -var="project_id=${PROJECT_ID}" \
+          -var="image_tag=${IMAGE_TAG}"
 
+      # Terraform Apply (only on main)
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main'
-        run: terraform apply -auto-approve -var="project_id=testing-474706"
+        run: terraform apply -auto-approve \
+          -var="project_id=${PROJECT_ID}" \
+          -var="image_tag=${IMAGE_TAG}"

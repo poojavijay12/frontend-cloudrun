@@ -1,15 +1,13 @@
-terraform {
-  backend "gcs" {
-    bucket  = "testing-474706-terraform-state"
-    prefix  = "frontend-cloudrun"
-  }
-}
-
 ############################################
-# TERRAFORM & PROVIDER
+# TERRAFORM (BACKEND + PROVIDERS)
 ############################################
 terraform {
   required_version = ">= 1.5.0"
+
+  backend "gcs" {
+    bucket  = "testing-474706-terraform-state"
+    prefix = "frontend-cloudrun"
+  }
 
   required_providers {
     google = {
@@ -19,6 +17,9 @@ terraform {
   }
 }
 
+############################################
+# PROVIDER
+############################################
 provider "google" {
   project = var.project_id
   region  = var.region
@@ -28,23 +29,29 @@ provider "google" {
 # VARIABLES
 ############################################
 variable "project_id" {
-  type        = string
   description = "GCP Project ID"
+  type        = string
 }
 
 variable "region" {
-  type    = string
-  default = "asia-south1"
+  description = "Deployment region"
+  type        = string
+  default     = "asia-south1"
 }
 
 variable "service_name" {
-  type    = string
-  default = "frontend-app-v2"
+  description = "Cloud Run service name"
+  type        = string
+  default     = "frontend-app-v2"
 }
 
+variable "image_tag" {
+  description = "Immutable Docker image tag (Git SHA)"
+  type        = string
+}
 
 ############################################
-# CLOUD RUN (FRONTEND V2)
+# CLOUD RUN (FRONTEND)
 ############################################
 resource "google_cloud_run_service" "frontend" {
   name     = var.service_name
@@ -53,7 +60,7 @@ resource "google_cloud_run_service" "frontend" {
   template {
     spec {
       containers {
-        image = "gcr.io/${var.project_id}/frontend:latest"
+        image = "gcr.io/${var.project_id}/frontend:${var.image_tag}"
 
         ports {
           container_port = 8080
@@ -71,7 +78,8 @@ resource "google_cloud_run_service" "frontend" {
 }
 
 ############################################
-# CLOUD RUN IAM (INVOKED VIA LOAD BALANCER)
+# CLOUD RUN IAM (PUBLIC FOR DEMO)
+# ⚠️ Replace with LB service account in prod
 ############################################
 resource "google_cloud_run_service_iam_member" "public_invoker" {
   location = google_cloud_run_service.frontend.location
@@ -94,7 +102,7 @@ resource "google_compute_region_network_endpoint_group" "serverless_neg" {
 }
 
 ############################################
-# BACKEND SERVICE (NO CLOUD ARMOR FOR NOW)
+# BACKEND SERVICE
 ############################################
 resource "google_compute_backend_service" "backend" {
   name                  = "frontend-backend-v2"
@@ -106,9 +114,6 @@ resource "google_compute_backend_service" "backend" {
   backend {
     group = google_compute_region_network_endpoint_group.serverless_neg.id
   }
-
-  # Cloud Armor disabled due to quota = 0
-  # security_policy = google_compute_security_policy.cloud_armor.id
 }
 
 ############################################
@@ -140,8 +145,8 @@ resource "google_compute_global_forwarding_rule" "https_rule" {
 # OUTPUTS
 ############################################
 output "load_balancer_ip" {
-  value       = google_compute_global_forwarding_rule.https_rule.ip_address
   description = "Public IP of HTTPS Load Balancer"
+  value       = google_compute_global_forwarding_rule.https_rule.ip_address
 }
 
 output "cloud_run_service" {
