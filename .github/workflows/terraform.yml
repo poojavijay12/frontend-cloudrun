@@ -31,13 +31,18 @@ jobs:
 
       - name: Terraform Init
         run: terraform init
+        working-directory: terraform
 
       - name: Terraform Validate
         run: terraform validate
+        working-directory: terraform
 
       - name: Terraform Plan
         run: terraform plan -var="project_id=pooja31"
+        working-directory: terraform
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main'
         run: terraform apply -auto-approve -var="project_id=pooja31"
+        working-directory: terraform
+
