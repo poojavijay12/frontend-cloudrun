@@ -81,12 +81,13 @@ resource "google_cloud_run_service" "frontend" {
 ############################################
 # CLOUD RUN IAM (ONLY LOAD BALANCER CAN INVOKE)
 ############################################
-resource "google_cloud_run_service_iam_member" "lb_invoker" {
+resource "google_cloud_run_service_iam_member" "public_invoker" {
   location = google_cloud_run_service.frontend.location
   service  = google_cloud_run_service.frontend.name
   role     = "roles/run.invoker"
-  member   = "serviceAccount:service-${var.project_id}@gcp-sa-cloudrun.iam.gserviceaccount.com"
+  member   = "allUsers"
 }
+
 
 ############################################
 # SERVERLESS NEG (LB → CLOUD RUN)
@@ -107,18 +108,19 @@ resource "google_compute_region_network_endpoint_group" "serverless_neg" {
 resource "google_compute_security_policy" "cloud_armor" {
   name = "frontend-cloud-armor"
 
+  # BLOCK SQLi
   rule {
-    priority = 1000
-    action   = "allow"
+    priority = 800
+    action   = "deny(403)"
 
     match {
-      versioned_expr = "SRC_IPS_V1"
-      config {
-        src_ip_ranges = ["*"]
+      expr {
+        expression = "evaluatePreconfiguredWaf('sqli-v33-stable')"
       }
     }
   }
 
+  # BLOCK XSS
   rule {
     priority = 900
     action   = "deny(403)"
@@ -130,17 +132,20 @@ resource "google_compute_security_policy" "cloud_armor" {
     }
   }
 
+  # DEFAULT ALLOW RULE (MANDATORY)
   rule {
-    priority = 800
-    action   = "deny(403)"
+    priority = 2147483647
+    action   = "allow"
 
     match {
-      expr {
-        expression = "evaluatePreconfiguredWaf('sqli-v33-stable')"
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["*"]
       }
     }
   }
 }
+
 
 ############################################
 # BACKEND SERVICE (ATTACHED TO CLOUD ARMOR)
