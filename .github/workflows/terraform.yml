@@ -28,6 +28,15 @@ jobs:
         with:
           workload_identity_provider: projects/81086632889/locations/global/workloadIdentityPools/github-pool/providers/github-provider
           service_account: terraform-platform@testing-474706.iam.gserviceaccount.com
+      - name: Configure Docker for GCP
+        run: gcloud auth configure-docker --quiet
+
+      - name: Build Docker image
+        run: docker build -t gcr.io/testing-474706/frontend:latest .
+
+      - name: Push Docker image
+        run: docker push gcr.io/testing-474706/frontend:latest
+
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
