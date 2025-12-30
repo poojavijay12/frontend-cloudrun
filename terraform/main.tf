@@ -45,11 +45,11 @@ variable "service_name" {
 
 variable "image_tag" {
   type        = string
-  description = "Docker image tag (Git SHA or version)"
+  description = "Docker image tag"
 }
 
 ############################################
-# CLOUD RUN (FRONTEND RUNTIME – LB ONLY)
+# CLOUD RUN (LB ONLY)
 ############################################
 resource "google_cloud_run_service" "frontend" {
   name     = var.service_name
@@ -57,7 +57,6 @@ resource "google_cloud_run_service" "frontend" {
 
   metadata {
     annotations = {
-      # ✅ REQUIRED for Serverless NEG + External HTTPS LB
       "run.googleapis.com/ingress" = "internal-and-cloud-load-balancing"
     }
   }
@@ -78,12 +77,10 @@ resource "google_cloud_run_service" "frontend" {
     percent         = 100
     latest_revision = true
   }
-
-  autogenerate_revision_name = true
 }
 
 ############################################
-# SERVERLESS NEG (LB → CLOUD RUN)
+# SERVERLESS NEG
 ############################################
 resource "google_compute_region_network_endpoint_group" "serverless_neg" {
   name                  = "frontend-serverless-neg"
@@ -96,16 +93,14 @@ resource "google_compute_region_network_endpoint_group" "serverless_neg" {
 }
 
 ############################################
-# CLOUD ARMOR (WAF)
+# CLOUD ARMOR
 ############################################
 resource "google_compute_security_policy" "cloud_armor" {
   name = "frontend-cloud-armor"
 
-  # OWASP XSS
   rule {
     priority = 800
     action   = "deny(403)"
-
     match {
       expr {
         expression = "evaluatePreconfiguredWaf('xss-v33-stable')"
@@ -113,11 +108,9 @@ resource "google_compute_security_policy" "cloud_armor" {
     }
   }
 
-  # OWASP SQL Injection
   rule {
     priority = 900
     action   = "deny(403)"
-
     match {
       expr {
         expression = "evaluatePreconfiguredWaf('sqli-v33-stable')"
@@ -125,11 +118,9 @@ resource "google_compute_security_policy" "cloud_armor" {
     }
   }
 
-  # ✅ MANDATORY DEFAULT RULE
   rule {
     priority = 2147483647
     action   = "allow"
-
     match {
       versioned_expr = "SRC_IPS_V1"
       config {
@@ -140,14 +131,13 @@ resource "google_compute_security_policy" "cloud_armor" {
 }
 
 ############################################
-# BACKEND SERVICE (ATTACHED TO CLOUD ARMOR)
+# BACKEND SERVICE
 ############################################
 resource "google_compute_backend_service" "backend" {
   name                  = "frontend-backend"
   protocol              = "HTTP"
   port_name             = "http"
   load_balancing_scheme = "EXTERNAL"
-  timeout_sec           = 30
 
   backend {
     group = google_compute_region_network_endpoint_group.serverless_neg.id
@@ -165,45 +155,14 @@ resource "google_compute_url_map" "url_map" {
 }
 
 ############################################
-# GLOBAL STATIC IP
+# GLOBAL IP
 ############################################
 resource "google_compute_global_address" "lb_ip" {
   name = "frontend-lb-ip"
 }
 
 ############################################
-# MANAGED SSL CERT (DEMO DOMAIN)
-############################################
-resource "google_compute_managed_ssl_certificate" "cert" {
-  name = "frontend-cert"
-
-  managed {
-    domains = ["example.com"]
-  }
-}
-
-############################################
-# HTTPS PROXY
-############################################
-resource "google_compute_target_https_proxy" "https_proxy" {
-  name            = "frontend-https-proxy"
-  url_map         = google_compute_url_map.url_map.id
-  ssl_certificates = [
-    google_compute_managed_ssl_certificate.cert.id
-  ]
-}
-
-############################################
-# GLOBAL FORWARDING RULE (HTTPS)
-############################################
-resource "google_compute_global_forwarding_rule" "https_rule" {
-  name       = "frontend-https-rule"
-  ip_address = google_compute_global_address.lb_ip.address
-  port_range = "443"
-  target     = google_compute_target_https_proxy.https_proxy.id
-}
-############################################
-# HTTP URL MAP (DIRECT TO BACKEND)
+# HTTP PROXY (PORT 80)
 ############################################
 resource "google_compute_target_http_proxy" "http_proxy" {
   name    = "frontend-http-proxy"
@@ -220,15 +179,9 @@ resource "google_compute_global_forwarding_rule" "http_rule" {
   target     = google_compute_target_http_proxy.http_proxy.id
 }
 
-
 ############################################
-# OUTPUTS
+# OUTPUT
 ############################################
 output "load_balancer_ip" {
-  description = "Public IP of the HTTPS Load Balancer"
-  value       = google_compute_global_address.lb_ip.address
-}
-
-output "cloud_run_service" {
-  value = google_cloud_run_service.frontend.name
+  value = google_compute_global_address.lb_ip.address
 }
