@@ -5,8 +5,8 @@ terraform {
   required_version = ">= 1.5.0"
 
   backend "gcs" {
-    bucket  = "testing-474706-terraform-state"
-    prefix  = "frontend-cloudrun"
+    bucket = "testing-474706-terraform-state"
+    prefix = "frontend-cloudrun"
   }
 
   required_providers {
@@ -29,39 +29,35 @@ provider "google" {
 # VARIABLES
 ############################################
 variable "project_id" {
-  description = "GCP Project ID"
   type        = string
+  description = "GCP Project ID"
 }
 
 variable "region" {
-  description = "Deployment region"
-  type        = string
-  default     = "asia-south1"
+  type    = string
+  default = "asia-south1"
 }
 
 variable "service_name" {
-  description = "Cloud Run service name"
-  type        = string
-  default     = "frontend-app-v2"
+  type    = string
+  default = "frontend-app"
 }
 
 variable "image_tag" {
-  description = "Immutable Docker image tag (Git SHA)"
   type        = string
+  description = "Docker image tag (Git SHA)"
 }
 
 ############################################
-# CLOUD RUN (FRONTEND)  ✅ FIXED
+# CLOUD RUN (PRIVATE FRONTEND RUNTIME)
 ############################################
 resource "google_cloud_run_service" "frontend" {
   name     = var.service_name
   location = var.region
 
-  ##########################################
-  # 🔑 CRITICAL FIX: ALLOW LOAD BALANCER TRAFFIC
-  ##########################################
   metadata {
     annotations = {
+      # Allow traffic only via LB
       "run.googleapis.com/ingress" = "all"
     }
   }
@@ -87,20 +83,22 @@ resource "google_cloud_run_service" "frontend" {
 }
 
 ############################################
-# CLOUD RUN IAM (PUBLIC FOR DEMO)
+# CLOUD RUN IAM (ONLY LB INVOKER – SECURITY FIRST)
 ############################################
-resource "google_cloud_run_service_iam_member" "public_invoker" {
+resource "google_cloud_run_service_iam_member" "lb_invoker" {
   location = google_cloud_run_service.frontend.location
   service  = google_cloud_run_service.frontend.name
   role     = "roles/run.invoker"
-  member   = "allUsers"
+
+  # Load Balancer / Serverless NEG identity
+  member = "serviceAccount:service-${var.project_id}@gcp-sa-cloudrun.iam.gserviceaccount.com"
 }
 
 ############################################
-# SERVERLESS NEG (LB → CLOUD RUN)
+# SERVERLESS NEG
 ############################################
 resource "google_compute_region_network_endpoint_group" "serverless_neg" {
-  name                  = "frontend-serverless-neg-v2"
+  name                  = "frontend-serverless-neg"
   region                = var.region
   network_endpoint_type = "SERVERLESS"
 
@@ -110,82 +108,99 @@ resource "google_compute_region_network_endpoint_group" "serverless_neg" {
 }
 
 ############################################
-# BACKEND SERVICE
+# CLOUD ARMOR (WAF)
+############################################
+resource "google_compute_security_policy" "cloud_armor" {
+  name = "frontend-cloud-armor"
+
+  rule {
+    priority = 1000
+    action   = "allow"
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["*"]
+      }
+    }
+  }
+
+  rule {
+    priority = 900
+    action   = "deny(403)"
+    match {
+      expr {
+        expression = "evaluatePreconfiguredWaf('xss-v33-stable')"
+      }
+    }
+  }
+
+  rule {
+    priority = 800
+    action   = "deny(403)"
+    match {
+      expr {
+        expression = "evaluatePreconfiguredWaf('sqli-v33-stable')"
+      }
+    }
+  }
+}
+
+############################################
+# BACKEND SERVICE (ATTACHED TO CLOUD ARMOR)
 ############################################
 resource "google_compute_backend_service" "backend" {
-  name                  = "frontend-backend-v2"
+  name                  = "frontend-backend"
   protocol              = "HTTP"
   port_name             = "http"
   load_balancing_scheme = "EXTERNAL"
-  timeout_sec           = 30
 
   backend {
     group = google_compute_region_network_endpoint_group.serverless_neg.id
   }
+
+  security_policy = google_compute_security_policy.cloud_armor.id
 }
 
 ############################################
 # URL MAP
 ############################################
 resource "google_compute_url_map" "url_map" {
-  name            = "frontend-url-map-v2"
+  name            = "frontend-url-map"
   default_service = google_compute_backend_service.backend.id
 }
 
 ############################################
-# GLOBAL STATIC IP (SHARED)
+# GLOBAL IP
 ############################################
 resource "google_compute_global_address" "lb_ip" {
-  name = "frontend-lb-ip-v2"
+  name = "frontend-lb-ip"
 }
 
 ############################################
-# MANAGED SSL CERTIFICATE (HTTPS)
+# SSL CERT (DEMO DOMAIN)
 ############################################
-resource "google_compute_managed_ssl_certificate" "frontend_cert" {
-  name = "frontend-managed-cert-v2"
+resource "google_compute_managed_ssl_certificate" "cert" {
+  name = "frontend-cert"
 
   managed {
-    # Placeholder domain for demo
     domains = ["example.com"]
   }
 }
 
 ############################################
-# HTTP PROXY (PORT 80)
-############################################
-resource "google_compute_target_http_proxy" "http_proxy" {
-  name    = "frontend-http-proxy-v2"
-  url_map = google_compute_url_map.url_map.id
-}
-
-############################################
-# HTTPS PROXY (PORT 443)
+# HTTPS PROXY
 ############################################
 resource "google_compute_target_https_proxy" "https_proxy" {
-  name    = "frontend-https-proxy-v2"
-  url_map = google_compute_url_map.url_map.id
-
-  ssl_certificates = [
-    google_compute_managed_ssl_certificate.frontend_cert.id
-  ]
+  name            = "frontend-https-proxy"
+  url_map         = google_compute_url_map.url_map.id
+  ssl_certificates = [google_compute_managed_ssl_certificate.cert.id]
 }
 
 ############################################
-# GLOBAL FORWARDING RULE – HTTP
-############################################
-resource "google_compute_global_forwarding_rule" "http_rule" {
-  name       = "frontend-http-forwarding-rule-v2"
-  ip_address = google_compute_global_address.lb_ip.address
-  port_range = "80"
-  target     = google_compute_target_http_proxy.http_proxy.id
-}
-
-############################################
-# GLOBAL FORWARDING RULE – HTTPS
+# FORWARDING RULE
 ############################################
 resource "google_compute_global_forwarding_rule" "https_rule" {
-  name       = "frontend-https-forwarding-rule-v2"
+  name       = "frontend-https-rule"
   ip_address = google_compute_global_address.lb_ip.address
   port_range = "443"
   target     = google_compute_target_https_proxy.https_proxy.id
@@ -195,10 +210,5 @@ resource "google_compute_global_forwarding_rule" "https_rule" {
 # OUTPUTS
 ############################################
 output "load_balancer_ip" {
-  description = "Shared public IP of Load Balancer"
-  value       = google_compute_global_address.lb_ip.address
-}
-
-output "cloud_run_service" {
-  value = google_cloud_run_service.frontend.name
+  value = google_compute_global_address.lb_ip.address
 }
