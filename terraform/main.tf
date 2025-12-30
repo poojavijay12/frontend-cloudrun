@@ -1,3 +1,10 @@
+terraform {
+  backend "gcs" {
+    bucket  = "testing-474706-terraform-state"
+    prefix  = "frontend-cloudrun"
+  }
+}
+
 ############################################
 # TERRAFORM & PROVIDER
 ############################################
@@ -34,6 +41,7 @@ variable "service_name" {
   type    = string
   default = "frontend-app-v2"
 }
+
 
 ############################################
 # CLOUD RUN (FRONTEND V2)
