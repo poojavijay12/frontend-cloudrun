@@ -124,6 +124,13 @@ resource "google_compute_url_map" "url_map" {
 }
 
 ############################################
+# GLOBAL STATIC IP (CRITICAL FIX)
+############################################
+resource "google_compute_global_address" "lb_ip" {
+  name = "frontend-lb-ip-v2"
+}
+
+############################################
 # MANAGED SSL CERTIFICATE (HTTPS)
 ############################################
 resource "google_compute_managed_ssl_certificate" "frontend_cert" {
@@ -136,7 +143,7 @@ resource "google_compute_managed_ssl_certificate" "frontend_cert" {
 }
 
 ############################################
-# HTTP PROXY (PORT 80 – DEMO ACCESS)
+# HTTP PROXY (PORT 80)
 ############################################
 resource "google_compute_target_http_proxy" "http_proxy" {
   name    = "frontend-http-proxy-v2"
@@ -160,6 +167,7 @@ resource "google_compute_target_https_proxy" "https_proxy" {
 ############################################
 resource "google_compute_global_forwarding_rule" "http_rule" {
   name       = "frontend-http-forwarding-rule-v2"
+  ip_address = google_compute_global_address.lb_ip.address
   port_range = "80"
   target     = google_compute_target_http_proxy.http_proxy.id
 }
@@ -169,6 +177,7 @@ resource "google_compute_global_forwarding_rule" "http_rule" {
 ############################################
 resource "google_compute_global_forwarding_rule" "https_rule" {
   name       = "frontend-https-forwarding-rule-v2"
+  ip_address = google_compute_global_address.lb_ip.address
   port_range = "443"
   target     = google_compute_target_https_proxy.https_proxy.id
 }
@@ -177,8 +186,8 @@ resource "google_compute_global_forwarding_rule" "https_rule" {
 # OUTPUTS
 ############################################
 output "load_balancer_ip" {
-  description = "Public IP of Load Balancer"
-  value       = google_compute_global_forwarding_rule.https_rule.ip_address
+  description = "Shared public IP of Load Balancer"
+  value       = google_compute_global_address.lb_ip.address
 }
 
 output "cloud_run_service" {
