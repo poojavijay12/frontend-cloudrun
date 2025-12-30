@@ -79,7 +79,6 @@ resource "google_cloud_run_service" "frontend" {
 
 ############################################
 # CLOUD RUN IAM (PUBLIC FOR DEMO)
-# ⚠️ Replace with LB service account in prod
 ############################################
 resource "google_cloud_run_service_iam_member" "public_invoker" {
   location = google_cloud_run_service.frontend.location
@@ -125,19 +124,27 @@ resource "google_compute_url_map" "url_map" {
 }
 
 ############################################
-# MANAGED SSL CERTIFICATE (REQUIRED FOR HTTPS)
+# MANAGED SSL CERTIFICATE (HTTPS)
 ############################################
 resource "google_compute_managed_ssl_certificate" "frontend_cert" {
   name = "frontend-managed-cert-v2"
 
   managed {
-    # Temporary domain is OK for demo/testing
+    # Placeholder domain for demo
     domains = ["example.com"]
   }
 }
 
 ############################################
-# HTTPS PROXY (WITH SSL CERTIFICATE)
+# HTTP PROXY (PORT 80 – DEMO ACCESS)
+############################################
+resource "google_compute_target_http_proxy" "http_proxy" {
+  name    = "frontend-http-proxy-v2"
+  url_map = google_compute_url_map.url_map.id
+}
+
+############################################
+# HTTPS PROXY (PORT 443)
 ############################################
 resource "google_compute_target_https_proxy" "https_proxy" {
   name    = "frontend-https-proxy-v2"
@@ -149,7 +156,16 @@ resource "google_compute_target_https_proxy" "https_proxy" {
 }
 
 ############################################
-# GLOBAL FORWARDING RULE (HTTPS ENTRY POINT)
+# GLOBAL FORWARDING RULE – HTTP
+############################################
+resource "google_compute_global_forwarding_rule" "http_rule" {
+  name       = "frontend-http-forwarding-rule-v2"
+  port_range = "80"
+  target     = google_compute_target_http_proxy.http_proxy.id
+}
+
+############################################
+# GLOBAL FORWARDING RULE – HTTPS
 ############################################
 resource "google_compute_global_forwarding_rule" "https_rule" {
   name       = "frontend-https-forwarding-rule-v2"
@@ -161,7 +177,7 @@ resource "google_compute_global_forwarding_rule" "https_rule" {
 # OUTPUTS
 ############################################
 output "load_balancer_ip" {
-  description = "Public IP of HTTPS Load Balancer"
+  description = "Public IP of Load Balancer"
   value       = google_compute_global_forwarding_rule.https_rule.ip_address
 }
 
