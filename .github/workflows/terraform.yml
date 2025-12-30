@@ -64,11 +64,10 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-      # Terraform Plan
       - name: Terraform Plan
-        run: terraform plan \
-          -var="project_id=${PROJECT_ID}" \
-          -var="image_tag=${IMAGE_TAG}"
+        run: terraform plan -var="project_id=${PROJECT_ID}" -var="image_tag=${IMAGE_TAG}"
+
+
 
       # Terraform Apply (only on main)
       - name: Terraform Apply
