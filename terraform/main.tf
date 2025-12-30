@@ -202,6 +202,24 @@ resource "google_compute_global_forwarding_rule" "https_rule" {
   port_range = "443"
   target     = google_compute_target_https_proxy.https_proxy.id
 }
+############################################
+# HTTP URL MAP (DIRECT TO BACKEND)
+############################################
+resource "google_compute_target_http_proxy" "http_proxy" {
+  name    = "frontend-http-proxy"
+  url_map = google_compute_url_map.url_map.id
+}
+
+############################################
+# HTTP FORWARDING RULE (PORT 80)
+############################################
+resource "google_compute_global_forwarding_rule" "http_rule" {
+  name       = "frontend-http-rule"
+  ip_address = google_compute_global_address.lb_ip.address
+  port_range = "80"
+  target     = google_compute_target_http_proxy.http_proxy.id
+}
+
 
 ############################################
 # OUTPUTS
