@@ -78,6 +78,21 @@ resource "google_cloud_run_service" "frontend" {
     latest_revision = true
   }
 }
+############################################
+# CLOUD RUN IAM (ALLOW LOAD BALANCER ONLY)
+############################################
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
+resource "google_cloud_run_service_iam_member" "lb_invoker" {
+  location = google_cloud_run_service.frontend.location
+  service  = google_cloud_run_service.frontend.name
+  role     = "roles/run.invoker"
+
+  member = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-cloudrun.iam.gserviceaccount.com"
+}
+
 
 ############################################
 # SERVERLESS NEG
