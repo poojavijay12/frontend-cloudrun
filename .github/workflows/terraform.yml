@@ -8,21 +8,26 @@ on:
 
 permissions:
   contents: read
-  id-token: write   # REQUIRED for OIDC
+  id-token: write   # REQUIRED for Workload Identity Federation
 
 jobs:
   terraform:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: terraform
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Authenticate using Workload Identity Federation
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: projects/881925804294/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-          service_account: terraform-platform@pooja31.iam.gserviceaccount.com
+          workload_identity_provider: projects/81086632889/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: terraform-platform@testing-474706.iam.gserviceaccount.com
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -30,19 +35,14 @@ jobs:
           terraform_version: 1.6.6
 
       - name: Terraform Init
-        run: terraform init
-        working-directory: terraform
+        run: terraform init -reconfigure
 
       - name: Terraform Validate
         run: terraform validate
-        working-directory: terraform
 
       - name: Terraform Plan
-        run: terraform plan -var="project_id=pooja31"
-        working-directory: terraform
+        run: terraform plan -var="project_id=testing-474706"
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main'
-        run: terraform apply -auto-approve -var="project_id=pooja31"
-        working-directory: terraform
-
+        run: terraform apply -auto-approve -var="project_id=testing-474706"

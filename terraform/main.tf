@@ -26,33 +26,17 @@ variable "project_id" {
 }
 
 variable "region" {
-  type        = string
-  default     = "asia-south1"
+  type    = string
+  default = "asia-south1"
 }
 
 variable "service_name" {
-  type        = string
-  default     = "frontend-app-v2"
+  type    = string
+  default = "frontend-app-v2"
 }
 
-
-
 ############################################
-# ENABLE REQUIRED APIS
-############################################
-#resource "google_project_service" "apis" {
-#  for_each = toset([
-#    "run.googleapis.com",
-#    "compute.googleapis.com",
-#    "iam.googleapis.com",
-#    "cloudresourcemanager.googleapis.com"
-#  ])
-#
-#  service = each.value
-#}
-
-############################################
-# CLOUD RUN (PRIVATE FRONTEND)
+# CLOUD RUN (FRONTEND V2)
 ############################################
 resource "google_cloud_run_service" "frontend" {
   name     = var.service_name
@@ -79,7 +63,7 @@ resource "google_cloud_run_service" "frontend" {
 }
 
 ############################################
-# CLOUD RUN IAM (ONLY LOAD BALANCER CAN INVOKE)
+# CLOUD RUN IAM (INVOKED VIA LOAD BALANCER)
 ############################################
 resource "google_cloud_run_service_iam_member" "public_invoker" {
   location = google_cloud_run_service.frontend.location
@@ -88,12 +72,11 @@ resource "google_cloud_run_service_iam_member" "public_invoker" {
   member   = "allUsers"
 }
 
-
 ############################################
 # SERVERLESS NEG (LB → CLOUD RUN)
 ############################################
 resource "google_compute_region_network_endpoint_group" "serverless_neg" {
-  name                  = "frontend-serverless-neg"
+  name                  = "frontend-serverless-neg-v2"
   region                = var.region
   network_endpoint_type = "SERVERLESS"
 
@@ -103,55 +86,10 @@ resource "google_compute_region_network_endpoint_group" "serverless_neg" {
 }
 
 ############################################
-# CLOUD ARMOR (WAF)
-############################################
-resource "google_compute_security_policy" "cloud_armor" {
-  name = "frontend-cloud-armor"
-
-  # BLOCK SQLi
-  rule {
-    priority = 800
-    action   = "deny(403)"
-
-    match {
-      expr {
-        expression = "evaluatePreconfiguredWaf('sqli-v33-stable')"
-      }
-    }
-  }
-
-  # BLOCK XSS
-  rule {
-    priority = 900
-    action   = "deny(403)"
-
-    match {
-      expr {
-        expression = "evaluatePreconfiguredWaf('xss-v33-stable')"
-      }
-    }
-  }
-
-  # DEFAULT ALLOW RULE (MANDATORY)
-  rule {
-    priority = 2147483647
-    action   = "allow"
-
-    match {
-      versioned_expr = "SRC_IPS_V1"
-      config {
-        src_ip_ranges = ["*"]
-      }
-    }
-  }
-}
-
-
-############################################
-# BACKEND SERVICE (ATTACHED TO CLOUD ARMOR)
+# BACKEND SERVICE (NO CLOUD ARMOR FOR NOW)
 ############################################
 resource "google_compute_backend_service" "backend" {
-  name                  = "frontend-backend"
+  name                  = "frontend-backend-v2"
   protocol              = "HTTP"
   port_name             = "http"
   load_balancing_scheme = "EXTERNAL"
@@ -161,35 +99,31 @@ resource "google_compute_backend_service" "backend" {
     group = google_compute_region_network_endpoint_group.serverless_neg.id
   }
 
-  security_policy = google_compute_security_policy.cloud_armor.id
+  # Cloud Armor disabled due to quota = 0
+  # security_policy = google_compute_security_policy.cloud_armor.id
 }
 
 ############################################
 # URL MAP
 ############################################
 resource "google_compute_url_map" "url_map" {
-  name            = "frontend-url-map"
+  name            = "frontend-url-map-v2"
   default_service = google_compute_backend_service.backend.id
 }
-
-
 
 ############################################
 # HTTPS PROXY
 ############################################
 resource "google_compute_target_https_proxy" "https_proxy" {
-  name = "frontend-https-proxy"
-
+  name    = "frontend-https-proxy-v2"
   url_map = google_compute_url_map.url_map.id
-
-  
 }
 
 ############################################
-# GLOBAL FORWARDING RULE (PUBLIC ENTRY)
+# GLOBAL FORWARDING RULE
 ############################################
 resource "google_compute_global_forwarding_rule" "https_rule" {
-  name       = "frontend-https-forwarding-rule"
+  name       = "frontend-https-forwarding-rule-v2"
   port_range = "443"
   target     = google_compute_target_https_proxy.https_proxy.id
 }
@@ -199,7 +133,7 @@ resource "google_compute_global_forwarding_rule" "https_rule" {
 ############################################
 output "load_balancer_ip" {
   value       = google_compute_global_forwarding_rule.https_rule.ip_address
-  description = "Public IP of the HTTPS Load Balancer"
+  description = "Public IP of HTTPS Load Balancer"
 }
 
 output "cloud_run_service" {
