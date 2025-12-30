@@ -85,13 +85,11 @@ resource "google_cloud_run_service" "frontend" {
 ############################################
 # CLOUD RUN IAM (ONLY LB INVOKER – SECURITY FIRST)
 ############################################
-resource "google_cloud_run_service_iam_member" "lb_invoker" {
+resource "google_cloud_run_service_iam_member" "public_invoker" {
   location = google_cloud_run_service.frontend.location
   service  = google_cloud_run_service.frontend.name
   role     = "roles/run.invoker"
-
-  # Load Balancer / Serverless NEG identity
-  member = "serviceAccount:service-${var.project_id}@gcp-sa-cloudrun.iam.gserviceaccount.com"
+  member   = "allUsers"
 }
 
 ############################################
@@ -113,20 +111,11 @@ resource "google_compute_region_network_endpoint_group" "serverless_neg" {
 resource "google_compute_security_policy" "cloud_armor" {
   name = "frontend-cloud-armor"
 
+  # OWASP XSS
   rule {
-    priority = 1000
-    action   = "allow"
-    match {
-      versioned_expr = "SRC_IPS_V1"
-      config {
-        src_ip_ranges = ["*"]
-      }
-    }
-  }
-
-  rule {
-    priority = 900
+    priority = 800
     action   = "deny(403)"
+
     match {
       expr {
         expression = "evaluatePreconfiguredWaf('xss-v33-stable')"
@@ -134,12 +123,27 @@ resource "google_compute_security_policy" "cloud_armor" {
     }
   }
 
+  # OWASP SQLi
   rule {
-    priority = 800
+    priority = 900
     action   = "deny(403)"
+
     match {
       expr {
         expression = "evaluatePreconfiguredWaf('sqli-v33-stable')"
+      }
+    }
+  }
+
+  # 🔑 REQUIRED DEFAULT RULE (MUST EXIST)
+  rule {
+    priority = 2147483647
+    action   = "allow"
+
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["*"]
       }
     }
   }
