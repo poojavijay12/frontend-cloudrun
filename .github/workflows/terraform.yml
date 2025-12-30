@@ -69,9 +69,7 @@ jobs:
 
 
 
-      # Terraform Apply (only on main)
+
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main'
-        run: terraform apply -auto-approve \
-          -var="project_id=${PROJECT_ID}" \
-          -var="image_tag=${IMAGE_TAG}"
+        run: terraform apply -auto-approve -var="project_id=${PROJECT_ID}" -var="image_tag=${IMAGE_TAG}"
