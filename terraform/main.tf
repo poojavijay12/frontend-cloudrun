@@ -51,11 +51,20 @@ variable "image_tag" {
 }
 
 ############################################
-# CLOUD RUN (FRONTEND)
+# CLOUD RUN (FRONTEND)  ✅ FIXED
 ############################################
 resource "google_cloud_run_service" "frontend" {
   name     = var.service_name
   location = var.region
+
+  ##########################################
+  # 🔑 CRITICAL FIX: ALLOW LOAD BALANCER TRAFFIC
+  ##########################################
+  metadata {
+    annotations = {
+      "run.googleapis.com/ingress" = "all"
+    }
+  }
 
   template {
     spec {
@@ -124,7 +133,7 @@ resource "google_compute_url_map" "url_map" {
 }
 
 ############################################
-# GLOBAL STATIC IP (CRITICAL FIX)
+# GLOBAL STATIC IP (SHARED)
 ############################################
 resource "google_compute_global_address" "lb_ip" {
   name = "frontend-lb-ip-v2"
