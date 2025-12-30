@@ -49,7 +49,7 @@ variable "image_tag" {
 }
 
 ############################################
-# CLOUD RUN (LB ONLY)
+# CLOUD RUN (LB-ONLY INGRESS)
 ############################################
 resource "google_cloud_run_service" "frontend" {
   name     = var.service_name
@@ -57,6 +57,7 @@ resource "google_cloud_run_service" "frontend" {
 
   metadata {
     annotations = {
+      # 🔒 ONLY reachable via Load Balancer
       "run.googleapis.com/ingress" = "internal-and-cloud-load-balancing"
     }
   }
@@ -78,21 +79,16 @@ resource "google_cloud_run_service" "frontend" {
     latest_revision = true
   }
 }
-############################################
-# CLOUD RUN IAM (ALLOW LOAD BALANCER ONLY)
-############################################
-data "google_project" "current" {
-  project_id = var.project_id
-}
 
-resource "google_cloud_run_service_iam_member" "lb_invoker" {
+############################################
+# CLOUD RUN IAM (REQUIRED FOR LB)
+############################################
+resource "google_cloud_run_service_iam_member" "public_invoker" {
   location = google_cloud_run_service.frontend.location
   service  = google_cloud_run_service.frontend.name
   role     = "roles/run.invoker"
-
-  member = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-cloudrun.iam.gserviceaccount.com"
+  member   = "allUsers"
 }
-
 
 ############################################
 # SERVERLESS NEG
@@ -177,7 +173,7 @@ resource "google_compute_global_address" "lb_ip" {
 }
 
 ############################################
-# HTTP PROXY (PORT 80)
+# HTTP PROXY
 ############################################
 resource "google_compute_target_http_proxy" "http_proxy" {
   name    = "frontend-http-proxy"
@@ -185,7 +181,7 @@ resource "google_compute_target_http_proxy" "http_proxy" {
 }
 
 ############################################
-# HTTP FORWARDING RULE (PORT 80)
+# HTTP FORWARDING RULE
 ############################################
 resource "google_compute_global_forwarding_rule" "http_rule" {
   name       = "frontend-http-rule"
