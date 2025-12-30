@@ -32,7 +32,7 @@ variable "region" {
 
 variable "service_name" {
   type        = string
-  default     = "frontend-app"
+  default     = "frontend-app-v2"
 }
 
 
