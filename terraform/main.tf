@@ -68,7 +68,7 @@ resource "google_cloud_run_service" "frontend" {
         image = "gcr.io/${var.project_id}/frontend:${var.image_tag}"
 
         ports {
-          container_port = 80
+          container_port = 8080
         }
       }
     }
