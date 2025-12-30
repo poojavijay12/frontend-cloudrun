@@ -45,11 +45,11 @@ variable "service_name" {
 
 variable "image_tag" {
   type        = string
-  description = "Docker image tag (Git SHA)"
+  description = "Docker image tag (Git SHA or version)"
 }
 
 ############################################
-# CLOUD RUN (PRIVATE FRONTEND RUNTIME)
+# CLOUD RUN (FRONTEND RUNTIME – LB ONLY)
 ############################################
 resource "google_cloud_run_service" "frontend" {
   name     = var.service_name
@@ -57,8 +57,8 @@ resource "google_cloud_run_service" "frontend" {
 
   metadata {
     annotations = {
-      # Allow traffic only via LB
-      "run.googleapis.com/ingress" = "all"
+      # ✅ REQUIRED for Serverless NEG + External HTTPS LB
+      "run.googleapis.com/ingress" = "internal-and-cloud-load-balancing"
     }
   }
 
@@ -83,17 +83,7 @@ resource "google_cloud_run_service" "frontend" {
 }
 
 ############################################
-# CLOUD RUN IAM (ONLY LB INVOKER – SECURITY FIRST)
-############################################
-resource "google_cloud_run_service_iam_member" "public_invoker" {
-  location = google_cloud_run_service.frontend.location
-  service  = google_cloud_run_service.frontend.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
-}
-
-############################################
-# SERVERLESS NEG
+# SERVERLESS NEG (LB → CLOUD RUN)
 ############################################
 resource "google_compute_region_network_endpoint_group" "serverless_neg" {
   name                  = "frontend-serverless-neg"
@@ -123,7 +113,7 @@ resource "google_compute_security_policy" "cloud_armor" {
     }
   }
 
-  # OWASP SQLi
+  # OWASP SQL Injection
   rule {
     priority = 900
     action   = "deny(403)"
@@ -135,7 +125,7 @@ resource "google_compute_security_policy" "cloud_armor" {
     }
   }
 
-  # 🔑 REQUIRED DEFAULT RULE (MUST EXIST)
+  # ✅ MANDATORY DEFAULT RULE
   rule {
     priority = 2147483647
     action   = "allow"
@@ -157,6 +147,7 @@ resource "google_compute_backend_service" "backend" {
   protocol              = "HTTP"
   port_name             = "http"
   load_balancing_scheme = "EXTERNAL"
+  timeout_sec           = 30
 
   backend {
     group = google_compute_region_network_endpoint_group.serverless_neg.id
@@ -174,14 +165,14 @@ resource "google_compute_url_map" "url_map" {
 }
 
 ############################################
-# GLOBAL IP
+# GLOBAL STATIC IP
 ############################################
 resource "google_compute_global_address" "lb_ip" {
   name = "frontend-lb-ip"
 }
 
 ############################################
-# SSL CERT (DEMO DOMAIN)
+# MANAGED SSL CERT (DEMO DOMAIN)
 ############################################
 resource "google_compute_managed_ssl_certificate" "cert" {
   name = "frontend-cert"
@@ -197,11 +188,13 @@ resource "google_compute_managed_ssl_certificate" "cert" {
 resource "google_compute_target_https_proxy" "https_proxy" {
   name            = "frontend-https-proxy"
   url_map         = google_compute_url_map.url_map.id
-  ssl_certificates = [google_compute_managed_ssl_certificate.cert.id]
+  ssl_certificates = [
+    google_compute_managed_ssl_certificate.cert.id
+  ]
 }
 
 ############################################
-# FORWARDING RULE
+# GLOBAL FORWARDING RULE (HTTPS)
 ############################################
 resource "google_compute_global_forwarding_rule" "https_rule" {
   name       = "frontend-https-rule"
@@ -214,5 +207,10 @@ resource "google_compute_global_forwarding_rule" "https_rule" {
 # OUTPUTS
 ############################################
 output "load_balancer_ip" {
-  value = google_compute_global_address.lb_ip.address
+  description = "Public IP of the HTTPS Load Balancer"
+  value       = google_compute_global_address.lb_ip.address
+}
+
+output "cloud_run_service" {
+  value = google_cloud_run_service.frontend.name
 }
